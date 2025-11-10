@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: bot
+    env: python
+    plan: free
+    buildCommand: pip install --use-pep517 --no-build-isolation -r requirements.txt
+    startCommand: python bot.py
