@@ -48,6 +48,16 @@ def ensure_users_file():
             print(f"✅ Создан файл {USERS_FILE}")
         else:
             print(f"✅ Файл {USERS_FILE} уже существует")
+            # Проверим, что файл читается корректно
+            with open(USERS_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    print("⚠️ Файл пустой, инициализируем...")
+                    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                        json.dump({}, f, ensure_ascii=False, indent=2)
+                else:
+                    data = json.loads(content)
+                    print(f"📊 В файле {len(data)} пользователей")
     except Exception as e:
         print(f"❌ Ошибка создания файла {USERS_FILE}: {e}")
 
@@ -59,9 +69,26 @@ def load_users():
     """Загружает пользователей из файла"""
     try:
         with open(USERS_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            content = f.read().strip()
+            if not content:
+                print("⚠️ Файл пользователей пуст")
+                return {}
+            data = json.loads(content)
+            print(f"📥 Загружено {len(data)} пользователей")
+            return data
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"❌ Ошибка загрузки пользователей: {e}")
+        # Создаем новый файл если есть ошибка
+        try:
+            with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
+            print("✅ Создан новый файл пользователей")
+            return {}
+        except Exception as e2:
+            print(f"❌ Критическая ошибка: {e2}")
+            return {}
+    except Exception as e:
+        print(f"❌ Неизвестная ошибка загрузки пользователей: {e}")
         return {}
 
 def save_users(users):
@@ -69,41 +96,72 @@ def save_users(users):
     try:
         with open(USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(users, f, ensure_ascii=False, indent=2)
+        print(f"💾 Сохранено {len(users)} пользователей")
+        return True
     except Exception as e:
         print(f"❌ Ошибка сохранения пользователей: {e}")
+        return False
 
 def add_user(user_id, username, first_name, last_name):
     """Добавляет/обновляет пользователя"""
     try:
         users = load_users()
         current_time = datetime.datetime.now().isoformat()
-        users[str(user_id)] = {
-            'username': username,
-            'first_name': first_name,
-            'last_name': last_name,
-            'full_name': f"{first_name} {last_name or ''}".strip(),
-            'first_seen': users.get(str(user_id), {}).get('first_seen', current_time),
-            'last_activity': current_time,
-            'messages_count': users.get(str(user_id), {}).get('messages_count', 0) + 1
-        }
-        save_users(users)
+        
+        user_key = str(user_id)
+        if user_key in users:
+            # Обновляем существующего пользователя
+            users[user_key].update({
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'full_name': f"{first_name} {last_name or ''}".strip(),
+                'last_activity': current_time,
+                'messages_count': users[user_key].get('messages_count', 0) + 1
+            })
+            print(f"📝 Обновлен пользователь {user_id}")
+        else:
+            # Добавляем нового пользователя
+            users[user_key] = {
+                'username': username,
+                'first_name': first_name,
+                'last_name': last_name,
+                'full_name': f"{first_name} {last_name or ''}".strip(),
+                'first_seen': current_time,
+                'last_activity': current_time,
+                'messages_count': 1
+            }
+            print(f"✅ Добавлен новый пользователь {user_id}")
+        
+        if save_users(users):
+            print(f"📊 Всего пользователей: {len(users)}")
+        else:
+            print("❌ Ошибка сохранения пользователя")
+            
     except Exception as e:
-        print(f"❌ Ошибка добавления пользователя: {e}")
+        print(f"❌ Ошибка добавления пользователя {user_id}: {e}")
 
 def get_all_users():
     """Возвращает всех пользователей"""
-    return load_users()
+    users = load_users()
+    print(f"📋 Запрошены все пользователи, найдено: {len(users)}")
+    return users
 
 def update_user_activity(user_id):
     """Обновляет время последней активности пользователя"""
     try:
         users = load_users()
-        if str(user_id) in users:
-            users[str(user_id)]['last_activity'] = datetime.datetime.now().isoformat()
-            users[str(user_id)]['messages_count'] = users[str(user_id)].get('messages_count', 0) + 1
+        user_key = str(user_id)
+        if user_key in users:
+            users[user_key]['last_activity'] = datetime.datetime.now().isoformat()
+            users[user_key]['messages_count'] = users[user_key].get('messages_count', 0) + 1
             save_users(users)
+            print(f"🔄 Обновлена активность пользователя {user_id}")
+        else:
+            # Если пользователя нет, добавляем его с базовой информацией
+            print(f"⚠️ Пользователь {user_id} не найден при обновлении активности")
     except Exception as e:
-        print(f"❌ Ошибка обновления активности: {e}")
+        print(f"❌ Ошибка обновления активности пользователя {user_id}: {e}")
 
 # ======== FSM STATES ========
 class ContactForm(StatesGroup):
@@ -314,12 +372,15 @@ def show_stats(msg):
     
     for user_data in users.values():
         try:
-            last_activity = datetime.datetime.fromisoformat(user_data['last_activity']).date()
-            if last_activity == today:
-                active_today += 1
-            if last_activity >= week_ago:
-                active_week += 1
-        except:
+            last_activity_str = user_data.get('last_activity', '')
+            if last_activity_str:
+                last_activity = datetime.datetime.fromisoformat(last_activity_str).date()
+                if last_activity == today:
+                    active_today += 1
+                if last_activity >= week_ago:
+                    active_week += 1
+        except Exception as e:
+            print(f"Ошибка обработки даты активности: {e}")
             continue
     
     # Статистика по сообщениям
@@ -348,9 +409,12 @@ def show_users_list(msg):
     sorted_users = []
     for user_id, user_data in users.items():
         try:
-            last_activity = datetime.datetime.fromisoformat(user_data['last_activity'])
-            sorted_users.append((user_id, user_data, last_activity))
-        except:
+            last_activity_str = user_data.get('last_activity', '')
+            if last_activity_str:
+                last_activity = datetime.datetime.fromisoformat(last_activity_str)
+                sorted_users.append((user_id, user_data, last_activity))
+        except Exception as e:
+            print(f"Ошибка сортировки пользователя {user_id}: {e}")
             continue
     
     sorted_users.sort(key=lambda x: x[2], reverse=True)
@@ -359,19 +423,23 @@ def show_users_list(msg):
     users_list = "👥 <b>Последние пользователи:</b>\n\n"
     for i, (user_id, user_data, last_activity) in enumerate(sorted_users[:10], 1):
         try:
-            first_seen = datetime.datetime.fromisoformat(user_data['first_seen']).strftime('%d.%m.%Y')
+            first_seen_str = user_data.get('first_seen', '')
+            first_seen = datetime.datetime.fromisoformat(first_seen_str).strftime('%d.%m.%Y') if first_seen_str else 'неизвестно'
             last_activity_str = last_activity.strftime('%d.%m.%Y %H:%M')
             messages_count = user_data.get('messages_count', 0)
+            username = user_data.get('username', 'нет')
+            full_name = user_data.get('full_name', 'Неизвестно')
             
             users_list += (
-                f"{i}. {user_data['full_name']}\n"
-                f"   👤 @{user_data['username'] or 'нет'}\n"
+                f"{i}. {full_name}\n"
+                f"   👤 @{username}\n"
                 f"   🆔 {user_id}\n"
                 f"   📅 Первый визит: {first_seen}\n"
                 f"   ⏰ Последняя активность: {last_activity_str}\n"
                 f"   💬 Сообщений: {messages_count}\n\n"
             )
-        except:
+        except Exception as e:
+            print(f"Ошибка форматирования пользователя {user_id}: {e}")
             continue
     
     if len(users) > 10:
@@ -789,6 +857,11 @@ if __name__ == "__main__":
     print("🤖 Запуск бота...")
     print(f"🔑 Админ ID: {ADMIN_ID}")
     print(f"📁 Файл пользователей: {USERS_FILE}")
+    
+    # Проверяем начальное состояние файла пользователей
+    initial_users = get_all_users()
+    print(f"📊 Начальное количество пользователей: {len(initial_users)}")
+    
     print("🚀 Бот запущен!")
     print("💡 Для доступа к админ-панели отправьте: /admin")
     bot.infinity_polling()
