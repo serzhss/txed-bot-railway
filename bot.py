@@ -1,20 +1,122 @@
 import os
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+import logging
+import json
+import datetime
+from telebot import TeleBot, types
+from telebot.handler_backends import State, StatesGroup
+from telebot.storage import StateMemoryStorage
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
 
 # Используем переменные окружения для безопасности
-TOKEN = os.getenv("BOT_TOKEN", "7819916914:AAHuOv_6eph7IZ2OYyqq-zKz22yr_G4MIPk")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "445570258"))
+TOKEN = os.getenv("BOT_TOKEN")  # УБРАЛИ дефолтное значение!
+ADMIN_ID = int(os.getenv("ADMIN_ID", "445570258"))  # Оставили только ваш ID
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
+# Проверка обязательных переменных
+if not TOKEN:
+    logging.error("❌ BOT_TOKEN не установлен!")
+    exit(1)
+
+# Инициализация бота
+storage = StateMemoryStorage()
+bot = TeleBot(TOKEN, state_storage=storage)
+
+# Файл для хранения данных пользователей
+USERS_FILE = "users.json"
+
+# ======== АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ФАЙЛА ПОЛЬЗОВАТЕЛЕЙ ========
+def ensure_users_file():
+    """Создает файл users.json если он не существует"""
+    try:
+        if not os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'w', encoding='utf-8') as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
+            print(f"✅ Создан файл {USERS_FILE}")
+        else:
+            print(f"✅ Файл {USERS_FILE} уже существует")
+    except Exception as e:
+        print(f"❌ Ошибка создания файла {USERS_FILE}: {e}")
+
+# Создаем файл при импорте модуля
+ensure_users_file()
+
+# ======== СИСТЕМА ХРАНЕНИЯ ПОЛЬЗОВАТЕЛЕЙ ========
+def load_users():
+    """Загружает пользователей из файла"""
+    try:
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"❌ Ошибка загрузки пользователей: {e}")
+        return {}
+
+def save_users(users):
+    """Сохраняет пользователей в файл"""
+    try:
+        with open(USERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"❌ Ошибка сохранения пользователей: {e}")
+
+def add_user(user_id, username, first_name, last_name):
+    """Добавляет/обновляет пользователя"""
+    try:
+        users = load_users()
+        current_time = datetime.datetime.now().isoformat()
+        users[str(user_id)] = {
+            'username': username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'full_name': f"{first_name} {last_name or ''}".strip(),
+            'first_seen': users.get(str(user_id), {}).get('first_seen', current_time),
+            'last_activity': current_time,
+            'messages_count': users.get(str(user_id), {}).get('messages_count', 0) + 1
+        }
+        save_users(users)
+    except Exception as e:
+        print(f"❌ Ошибка добавления пользователя: {e}")
+
+def get_all_users():
+    """Возвращает всех пользователей"""
+    return load_users()
+
+def update_user_activity(user_id):
+    """Обновляет время последней активности пользователя"""
+    try:
+        users = load_users()
+        if str(user_id) in users:
+            users[str(user_id)]['last_activity'] = datetime.datetime.now().isoformat()
+            users[str(user_id)]['messages_count'] = users[str(user_id)].get('messages_count', 0) + 1
+            save_users(users)
+    except Exception as e:
+        print(f"❌ Ошибка обновления активности: {e}")
+
+# ======== FSM STATES ========
+class ContactForm(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_phone = State()
+
+class AdminForm(StatesGroup):
+    waiting_for_broadcast_message = State()
+
+# Словарь для отслеживания текущего фото для каждого пользователя
+user_photo_index = {}
 
 # ======== КАТАЛОГ ========
 bikes = {
     "PRIMO": {
-        "description": "🚴‍♂️ **PRIMO**\n\nМаневренная, универсальная модель для активного фанового катания в холмистой местности.\n\nБазовый уровень линейки — для зрелых любителей качества и современных тенденций велостроения.",
-        "photo": "https://optim.tildacdn.com/tild6336-3032-4434-b935-346363326131/-/format/webp/Photo-70.webp",
+        "description": "🚴‍♂️ <b>PRIMO</b>\n\nМаневренная, универсальная модель для активного фанового катания в холмистой местности.\n\nБазовый уровень линейки — для зрелых любителей качества и современных тенденций велостроения.\n\nРозничная цена 50 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild6336-3032-4434-b935-346363326131/-/format/webp/Photo-70.webp",
+            "https://optim.tildacdn.com/tild6536-6564-4661-b563-323737643733/-/format/webp/Photo-45.webp",
+            "https://optim.tildacdn.com/tild6263-6233-4537-a436-633033386132/-/format/webp/Photo-47.webp",
+            "https://optim.tildacdn.com/tild3731-3531-4463-b933-386135363632/-/format/webp/Photo-48.webp",
+            "https://optim.tildacdn.com/tild3038-3263-4935-a533-326637363030/-/format/webp/Photo-49.webp",
+            "https://optim.tildacdn.com/tild3831-3637-4836-b836-363934653638/-/format/webp/Photo-50.webp",
+            "https://optim.tildacdn.com/tild6665-3839-4632-a663-613133313564/-/format/webp/Photo-55.webp",
+            "https://optim.tildacdn.com/tild3734-6433-4835-b639-623036366165/-/format/webp/Photo-57.webp"
+        ],
         "specs": {
             "Вилка": "UDING DS HLO",
             "Передний переключатель": "SHIMANO ALTUS M315",
@@ -39,8 +141,10 @@ bikes = {
         }
     },
     "TERZO": {
-        "description": "🚴‍♂️ **TERZO**\n\nНа треть эффективнее аналогов в этой нише.\nОтличное решение для тех, кто перерос прогулочный байк и готов для большего.",
-        "photo": "https://optim.tildacdn.com/tild3531-3036-4463-b536-303235326633/-/format/webp/Photo-71.webp",
+        "description": "🚴‍♂️ <b>TERZO</b>\n\nНа треть эффективнее аналогов в этой нише.\nОтличное решение для тех, кто перерос прогулочный байк и готов для большего.\n\nРозничная цена 65 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild3531-3036-4463-b536-303235326633/-/format/webp/Photo-71.webp"
+        ],
         "specs": {
             "Вилка": "UDING DS HLO",
             "Передний переключатель": "-",
@@ -65,8 +169,10 @@ bikes = {
         }
     },
     "ULTIMO": {
-        "description": "🚴‍♂️ **ULTIMO**\n\nТоповый в линейке middle-сегмента трейловых велосипедов для прогрессирующих райдеров.\nПредназначен для гонок и катания на пересечённой местности со средним или существенным перепадом высот.",
-        "photo": "https://optim.tildacdn.com/tild3637-6439-4237-b638-303336613863/-/format/webp/Photo-69.webp",
+        "description": "🚴‍♂️ <b>ULTIMO</b>\n\nТоповый в линейке middle-сегмента трейловых велосипедов для прогрессирующих райдеров.\nПредназначен для гонок и катания на пересечённой местности со средним или существенным перепадом высот.\n\nРозничная цена 75 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild3637-6439-4237-b638-303336613863/-/format/webp/Photo-69.webp"
+        ],
         "specs": {
             "Вилка": "UDING DS HLO",
             "Передний переключатель": "-",
@@ -91,8 +197,10 @@ bikes = {
         }
     },
     "TESORO": {
-        "description": "🚴‍♂️ **TESORO**\n\nСбалансированный аппарат для катания в горах и холмистой местности, для техничных трасс с прыжками и виражами.",
-        "photo": "https://optim.tildacdn.com/tild3932-3166-4537-b837-386365666162/-/format/webp/Photo-72.webp",
+        "description": "🚴‍♂️ <b>TESORO</b>\n\nСбалансированный аппарат для катания в горах и холмистой местности, для техничных трасс с прыжками и виражами.\n\nРозничная цена 85 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild3932-3166-4537-b837-386365666162/-/format/webp/Photo-72.webp"
+        ],
         "specs": {
             "Вилка": "ZOOM 868 AIR BOOST",
             "Передний переключатель": "-",
@@ -117,8 +225,10 @@ bikes = {
         }
     },
     "OTTIMO": {
-        "description": "🚴‍♂️ **OTTIMO**\n\nНа этом байке реально проехать кросс-кантрийный марафон, уверенно проходить сложные участки и крутые спуски.\nПозволяет чувствовать себя на равных с мировыми брендами в соревнованиях.",
-        "photo": "https://optim.tildacdn.com/tild3662-3335-4362-a665-303137396364/-/format/webp/Photo-73.webp",
+        "description": "🚴‍♂️ <b>OTTIMO</b>\n\nНа этом байке реально проехать кросс-кантрийный марафон, уверенно проходить сложные участки и крутые спуски.\nПозволяет чувствовать себя на равных с мировыми брендами в соревнованиях.\n\nРозничная цена 95 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild3662-3335-4362-a665-303137396364/-/format/webp/Photo-73.webp"
+        ],
         "specs": {
             "Вилка": "ROCK SHOX FS RECON 29F",
             "Передний переключатель": "-",
@@ -146,226 +256,527 @@ bikes = {
 # Размеры рам
 frame_sizes = {
     "M (17\")": "163-177 см",
-    "L (19\")": "173-187 см", 
+    "L (19\")": "173-187 см",
     "XL (21\")": "182-197 см"
 }
 
 # Словарь для хранения выбранных моделей и размеров пользователей
 user_selections = {}
 
-# ======== /START ========
-@dp.message(Command("start"))
-async def start(msg: types.Message):
-    kb = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="Каталог 🚲")],
-            [types.KeyboardButton(text="Позвать специалиста 👨‍💼")],
-            [types.KeyboardButton(text="О нас ℹ️")]
-        ],
-        resize_keyboard=True
-    )
-    await msg.answer(
-        "Привет! Я помогу выбрать велосипед 🚴‍♂️\n\nВыбери действие:",
+# ======== АДМИН ПАНЕЛЬ ========
+@bot.message_handler(commands=['admin'])
+def admin_panel(msg):
+    if msg.from_user.id != ADMIN_ID:
+        bot.send_message(msg.chat.id, "⛔ У вас нет доступа к админ-панели")
+        return
+    
+    users = get_all_users()
+    total_users = len(users)
+    
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(types.KeyboardButton("📊 Статистика"))
+    kb.add(types.KeyboardButton("📢 Рассылка"))
+    kb.add(types.KeyboardButton("📋 Список пользователей"))
+    kb.add(types.KeyboardButton("⬅️ Выйти из админки"))
+    
+    bot.send_message(
+        msg.chat.id,
+        f"👑 <b>Админ-панель</b>\n\n"
+        f"📈 Всего пользователей: {total_users}\n"
+        f"🆔 Ваш ID: {ADMIN_ID}",
+        parse_mode="HTML",
         reply_markup=kb
     )
 
-# ======== КНОПКА "ПОЗВАТЬ СПЕЦИАЛИСТА" ========
-@dp.message(lambda m: m.text and "специалиста" in m.text.lower())
-async def call_specialist(msg: types.Message):
-    # Сообщение пользователю
-    await msg.answer(
-        "Отлично! Я уведомил специалиста о вашем запросе. "
-        "С вами свяжутся в ближайшее время для консультации. ☎️\n\n"
-        "Если у вас есть срочный вопрос, вы можете написать его прямо сейчас."
+@bot.message_handler(func=lambda m: m.text == "📊 Статистика" and m.from_user.id == ADMIN_ID)
+def show_stats(msg):
+    users = get_all_users()
+    total_users = len(users)
+    
+    # Статистика по активности
+    today = datetime.datetime.now().date()
+    active_today = 0
+    active_week = 0
+    week_ago = today - datetime.timedelta(days=7)
+    
+    for user_data in users.values():
+        try:
+            last_activity = datetime.datetime.fromisoformat(user_data['last_activity']).date()
+            if last_activity == today:
+                active_today += 1
+            if last_activity >= week_ago:
+                active_week += 1
+        except:
+            continue
+    
+    # Статистика по сообщениям
+    total_messages = sum(user_data.get('messages_count', 0) for user_data in users.values())
+    
+    stats_text = (
+        f"📊 <b>Статистика бота</b>\n\n"
+        f"👥 Всего пользователей: {total_users}\n"
+        f"🟢 Активных сегодня: {active_today}\n"
+        f"📈 Активных за неделю: {active_week}\n"
+        f"💬 Всего сообщений: {total_messages}\n"
+        f"📅 Дата: {today.strftime('%d.%m.%Y')}"
     )
     
-    # Уведомление админу
-    specialist_message = (
-        "👨‍💼 **ЗАПРОС СПЕЦИАЛИСТА**\n\n"
-        f"Пользователь: {msg.from_user.full_name}\n"
-        f"ID: {msg.from_user.id}\n"
-        f"Username: @{msg.from_user.username if msg.from_user.username else 'не указан'}\n\n"
-        "⚠️ Свяжись с клиентом для консультации!"
+    bot.send_message(msg.chat.id, stats_text, parse_mode="HTML")
+
+@bot.message_handler(func=lambda m: m.text == "📋 Список пользователей" and m.from_user.id == ADMIN_ID)
+def show_users_list(msg):
+    users = get_all_users()
+    
+    if not users:
+        bot.send_message(msg.chat.id, "📭 Пользователей пока нет")
+        return
+    
+    # Сортируем по дате последней активности (новые сначала)
+    sorted_users = []
+    for user_id, user_data in users.items():
+        try:
+            last_activity = datetime.datetime.fromisoformat(user_data['last_activity'])
+            sorted_users.append((user_id, user_data, last_activity))
+        except:
+            continue
+    
+    sorted_users.sort(key=lambda x: x[2], reverse=True)
+    
+    # Показываем первых 10 пользователей
+    users_list = "👥 <b>Последние пользователи:</b>\n\n"
+    for i, (user_id, user_data, last_activity) in enumerate(sorted_users[:10], 1):
+        try:
+            first_seen = datetime.datetime.fromisoformat(user_data['first_seen']).strftime('%d.%m.%Y')
+            last_activity_str = last_activity.strftime('%d.%m.%Y %H:%M')
+            messages_count = user_data.get('messages_count', 0)
+            
+            users_list += (
+                f"{i}. {user_data['full_name']}\n"
+                f"   👤 @{user_data['username'] or 'нет'}\n"
+                f"   🆔 {user_id}\n"
+                f"   📅 Первый визит: {first_seen}\n"
+                f"   ⏰ Последняя активность: {last_activity_str}\n"
+                f"   💬 Сообщений: {messages_count}\n\n"
+            )
+        except:
+            continue
+    
+    if len(users) > 10:
+        users_list += f"... и еще {len(users) - 10} пользователей"
+    
+    bot.send_message(msg.chat.id, users_list, parse_mode="HTML")
+
+@bot.message_handler(func=lambda m: m.text == "📢 Рассылка" and m.from_user.id == ADMIN_ID)
+def start_broadcast(msg):
+    users = get_all_users()
+    total_users = len(users)
+    
+    if total_users == 0:
+        bot.send_message(msg.chat.id, "❌ Нет пользователей для рассылки")
+        return
+    
+    bot.send_message(
+        msg.chat.id,
+        f"📢 <b>Рассылка сообщений</b>\n\n"
+        f"Получателей: {total_users} пользователей\n\n"
+        "Отправьте сообщение, которое хотите разослать:",
+        parse_mode="HTML"
+    )
+    bot.set_state(msg.from_user.id, AdminForm.waiting_for_broadcast_message, msg.chat.id)
+
+@bot.message_handler(state=AdminForm.waiting_for_broadcast_message)
+def process_broadcast_message(msg):
+    users = get_all_users()
+    total_users = len(users)
+    
+    if total_users == 0:
+        bot.send_message(msg.chat.id, "❌ Нет пользователей для рассылки")
+        bot.delete_state(msg.from_user.id, msg.chat.id)
+        return
+    
+    # Подтверждение рассылки
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("✅ Разослать", callback_data="confirm_broadcast"))
+    kb.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_broadcast"))
+    
+    # Сохраняем сообщение для рассылки
+    with bot.retrieve_data(msg.from_user.id, msg.chat.id) as data:
+        data['broadcast_message'] = msg.text
+    
+    # Показываем превью сообщения
+    preview_text = msg.text[:100] + "..." if len(msg.text) > 100 else msg.text
+    
+    bot.send_message(
+        msg.chat.id,
+        f"📢 <b>Подтверждение рассылки</b>\n\n"
+        f"Сообщение: {preview_text}\n\n"
+        f"Получателей: {total_users} пользователей\n\n"
+        f"Подтвердите отправку:",
+        parse_mode="HTML",
+        reply_markup=kb
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "confirm_broadcast")
+def confirm_broadcast(call):
+    users = get_all_users()
+    
+    with bot.retrieve_data(call.from_user.id, call.message.chat.id) as data:
+        message_text = data.get('broadcast_message', '')
+    
+    if not message_text:
+        bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено")
+        return
+    
+    # Рассылка сообщения с задержками для PythonAnywhere
+    success_count = 0
+    fail_count = 0
+    
+    bot.edit_message_text(
+        "🔄 Рассылка начата...\n\n⏳ Это может занять несколько минут",
+        call.message.chat.id,
+        call.message.message_id
     )
     
-    await bot.send_message(ADMIN_ID, specialist_message)
+    # Рассылка с задержками для обхода ограничений PythonAnywhere
+    import time
+    for i, user_id in enumerate(users.keys()):
+        try:
+            # Отправляем сообщение
+            bot.send_message(int(user_id), message_text)
+            success_count += 1
+            
+            # Задержка каждые 10 сообщений
+            if (i + 1) % 10 == 0:
+                time.sleep(1)
+                
+        except Exception as e:
+            fail_count += 1
+            print(f"Ошибка отправки пользователю {user_id}: {e}")
+    
+    # Результат рассылки
+    result_text = (
+        f"📢 <b>Рассылка завершена</b>\n\n"
+        f"✅ Успешно: {success_count}\n"
+        f"❌ Не удалось: {fail_count}\n"
+        f"👥 Всего: {len(users)}"
+    )
+    
+    bot.edit_message_text(
+        result_text,
+        call.message.chat.id,
+        call.message.message_id,
+        parse_mode="HTML"
+    )
+    
+    bot.delete_state(call.from_user.id, call.message.chat.id)
+    bot.answer_callback_query(call.id)
+
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_broadcast")
+def cancel_broadcast(call):
+    bot.delete_state(call.from_user.id, call.message.chat.id)
+    bot.edit_message_text(
+        "❌ Рассылка отменена",
+        call.message.chat.id,
+        call.message.message_id
+    )
+    bot.answer_callback_query(call.id)
+
+@bot.message_handler(func=lambda m: m.text == "⬅️ Выйти из админки" and m.from_user.id == ADMIN_ID)
+def exit_admin(msg):
+    # Возвращаем обычную клавиатуру
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(types.KeyboardButton("Каталог 🚲"))
+    kb.add(types.KeyboardButton("Позвать специалиста 👨‍💼"))
+    kb.add(types.KeyboardButton("О нас ℹ️"))
+    
+    bot.send_message(msg.chat.id, "✅ Вы вышли из админ-панели", reply_markup=kb)
+
+# ======== ОСНОВНЫЕ ФУНКЦИИ БОТА ========
+@bot.message_handler(commands=['start'])
+def start(msg):
+    # Сохраняем пользователя при старте
+    add_user(
+        msg.from_user.id,
+        msg.from_user.username,
+        msg.from_user.first_name,
+        msg.from_user.last_name
+    )
+    
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(types.KeyboardButton("Каталог 🚲"))
+    kb.add(types.KeyboardButton("Позвать специалиста 👨‍💼"))
+    kb.add(types.KeyboardButton("О нас ℹ️"))
+    
+    welcome_text = "👋 Добро пожаловать!\n\nЯ помогу вам выбрать идеальный велосипед 🚴‍♂️\n\nВыберите действие из меню ниже:"
+    bot.send_message(msg.chat.id, welcome_text, reply_markup=kb)
+
+# ======== СПЕЦИАЛИСТ ========
+@bot.message_handler(func=lambda m: m.text and "специалиста" in m.text.lower())
+def call_specialist(msg):
+    # Сохраняем активность
+    update_user_activity(msg.from_user.id)
+    
+    bot.send_message(msg.chat.id, "Отлично! Я уведомил специалиста. С вами свяжутся в ближайшее время! ☎️")
+    specialist_message = f"👨‍💼 ЗАПРОС СПЕЦИАЛИСТА\n\nПользователь: {msg.from_user.full_name}\nID: {msg.from_user.id}\nUsername: @{msg.from_user.username or 'не указан'}"
+    bot.send_message(ADMIN_ID, specialist_message)
 
 # ======== КАТАЛОГ ========
-@dp.message(lambda m: m.text and "Каталог" in m.text)
-async def catalog(msg: types.Message):
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[])
+@bot.message_handler(func=lambda m: m.text and "Каталог" in m.text)
+def catalog(msg):
+    # Сохраняем активность
+    update_user_activity(msg.from_user.id)
+    
+    kb = types.InlineKeyboardMarkup()
     for bike in bikes:
-        kb.inline_keyboard.append([types.InlineKeyboardButton(text=bike, callback_data=bike)])
-    await msg.answer("Выбери модель:", reply_markup=kb)
+        kb.add(types.InlineKeyboardButton(bike, callback_data=bike))
+    bot.send_message(msg.chat.id, "Выбери модель:", reply_markup=kb)
 
-# ======== ПОКАЗ МОДЕЛИ ========
-@dp.callback_query(lambda c: c.data in bikes)
-async def show_bike(callback: types.CallbackQuery):
-    name = callback.data
+# ======== ПОКАЗ МОДЕЛИ С НАВИГАЦИЕЙ ПО ФОТО ========
+@bot.callback_query_handler(func=lambda call: call.data in bikes)
+def show_bike(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
+    
+    name = call.data
     bike_data = bikes[name]
-    text = bike_data["description"]
-    photo_url = bike_data["photo"]
-    
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="📋 Спецификация", callback_data=f"specs_{name}")],
-        [types.InlineKeyboardButton(text="🛒 Заказать", callback_data=f"order_{name}")],
-        [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_catalog")]
-    ])
-    
-    await callback.message.answer_photo(
-        photo=photo_url,
-        caption=text,
-        parse_mode="Markdown",
-        reply_markup=kb
+
+    # Устанавливаем начальный индекс фото для пользователя
+    user_photo_index[call.from_user.id] = {
+        'bike': name,
+        'index': 0
+    }
+
+    # Показываем первое фото
+    show_photo(call.message, call.from_user.id, name, 0)
+    bot.answer_callback_query(call.id)
+
+def show_photo(message, user_id, bike_name, photo_index):
+    bike_data = bikes[bike_name]
+    photos = bike_data["photos"]
+
+    # Создаем клавиатуру навигации
+    kb = types.InlineKeyboardMarkup()
+
+    # Кнопки навигации если фото больше одного
+    if len(photos) > 1:
+        row = []
+        if photo_index > 0:
+            row.append(types.InlineKeyboardButton("⬅️", callback_data=f"prev_photo_{bike_name}"))
+        row.append(types.InlineKeyboardButton(f"{photo_index + 1}/{len(photos)}", callback_data="photo_counter"))
+        if photo_index < len(photos) - 1:
+            row.append(types.InlineKeyboardButton("➡️", callback_data=f"next_photo_{bike_name}"))
+        kb.row(*row)
+
+    # Основные кнопки
+    kb.add(types.InlineKeyboardButton("📋 Спецификация", callback_data=f"specs_{bike_name}"))
+    kb.add(types.InlineKeyboardButton("🛒 Заказать", callback_data=f"order_{bike_name}"))
+    kb.add(types.InlineKeyboardButton("⬅️ Назад в каталог", callback_data="back_to_catalog"))
+
+    # Текст для фото
+    caption = bike_data["description"] if photo_index == 0 else f"Фото {photo_index + 1} из {len(photos)}"
+
+    # Отправляем фото
+    bot.send_photo(
+        message.chat.id,
+        photos[photo_index],
+        caption=caption,
+        reply_markup=kb,
+        parse_mode="HTML"
     )
 
-# ======== ПОКАЗ СПЕЦИФИКАЦИИ ========
-@dp.callback_query(lambda c: c.data.startswith("specs_"))
-async def show_specs(callback: types.CallbackQuery):
-    bike_name = callback.data.replace("specs_", "")
+# ======== НАВИГАЦИЯ ПО ФОТО ========
+@bot.callback_query_handler(func=lambda call: call.data.startswith(("prev_photo_", "next_photo_")))
+def navigate_photo(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
+    
+    user_id = call.from_user.id
+
+    if user_id not in user_photo_index:
+        bot.answer_callback_query(call.id, "Сессия устарела, начните заново")
+        return
+
+    current_data = user_photo_index[user_id]
+    bike_name = current_data['bike']
+    current_index = current_data['index']
+    photos = bikes[bike_name]["photos"]
+
+    # Определяем направление навигации
+    if call.data.startswith("prev_photo_"):
+        new_index = max(0, current_index - 1)
+    else:  # next_photo_
+        new_index = min(len(photos) - 1, current_index + 1)
+
+    # Обновляем индекс
+    user_photo_index[user_id]['index'] = new_index
+
+    # Удаляем старое сообщение и показываем новое фото
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except:
+        pass
+
+    show_photo(call.message, user_id, bike_name, new_index)
+    bot.answer_callback_query(call.id)
+
+# ======== СПЕЦИФИКАЦИЯ ========
+@bot.callback_query_handler(func=lambda call: call.data.startswith("specs_"))
+def show_specs(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
+    
+    bike_name = call.data.replace("specs_", "")
     bike_data = bikes[bike_name]
     specs = bike_data["specs"]
-    
-    # Формируем текст спецификации
-    specs_text = f"🔧 **Спецификация {bike_name}**\n\n"
+
+    specs_text = f"🔧 <b>Спецификация {bike_name}</b>\n\n"
     for component, value in specs.items():
-        specs_text += f"• **{component}:** {value}\n"
-    
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="⬅️ Назад к модели", callback_data=bike_name)],
-        [types.InlineKeyboardButton(text="🛒 Заказать", callback_data=f"order_{bike_name}")]
-    ])
-    
-    await callback.message.answer(
-        specs_text,
-        parse_mode="Markdown",
-        reply_markup=kb
-    )
+        specs_text += f"• <b>{component}:</b> {value}\n"
 
-# ======== ВЫБОР РАЗМЕРА РАМЫ ========
-@dp.callback_query(lambda c: c.data.startswith("order_"))
-async def select_frame_size(callback: types.CallbackQuery):
-    bike_name = callback.data.replace("order_", "")
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("⬅️ Назад к модели", callback_data=bike_name))
+    kb.add(types.InlineKeyboardButton("🛒 Заказать", callback_data=f"order_{bike_name}"))
+
+    bot.send_message(call.message.chat.id, specs_text, parse_mode="HTML", reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+# ======== ВЫБОР РАЗМЕРА ========
+@bot.callback_query_handler(func=lambda call: call.data.startswith("order_"))
+def select_frame_size(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
     
-    # Сохраняем выбранную модель для пользователя
-    user_selections[callback.from_user.id] = {"bike": bike_name}
-    
-    # Создаем клавиатуру с размерами рам
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[])
+    bike_name = call.data.replace("order_", "")
+    user_selections[call.from_user.id] = {"bike": bike_name}
+
+    kb = types.InlineKeyboardMarkup()
     for size, height_range in frame_sizes.items():
-        kb.inline_keyboard.append([
-            types.InlineKeyboardButton(
-                text=f"{size} ({height_range})", 
-                callback_data=f"size_{size}"
-            )
-        ])
-    
-    kb.inline_keyboard.append([
-        types.InlineKeyboardButton(text="⬅️ Назад к модели", callback_data=bike_name)
-    ])
-    
-    await callback.message.answer(
-        f"Вы выбрали {bike_name}! 🚴‍♂️\n\n"
-        "Теперь выбери размер рамы:",
-        reply_markup=kb
-    )
+        kb.add(types.InlineKeyboardButton(f"{size} ({height_range})", callback_data=f"size_{size}"))
+    kb.add(types.InlineKeyboardButton("⬅️ Назад к модели", callback_data=bike_name))
 
-# ======== СОХРАНЕНИЕ РАЗМЕРА РАМЫ ========
-@dp.callback_query(lambda c: c.data.startswith("size_"))
-async def save_frame_size(callback: types.CallbackQuery):
-    frame_size = callback.data.replace("size_", "")
+    bot.send_message(call.message.chat.id, f"Вы выбрали {bike_name}! 🚴‍♂️\n\nТеперь выбери размер рамы:", reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+# ======== СОХРАНЕНИЕ РАЗМЕРА ========
+@bot.callback_query_handler(func=lambda call: call.data.startswith("size_"))
+def save_frame_size(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
     
-    # Получаем диапазон роста для выбранного размера
+    frame_size = call.data.replace("size_", "")
     height_range = frame_sizes.get(frame_size, "")
-    
-    # Сохраняем размер рамы для пользователя
-    user_id = callback.from_user.id
+
+    user_id = call.from_user.id
     if user_id in user_selections:
         user_selections[user_id]["frame_size"] = frame_size
         user_selections[user_id]["height_range"] = height_range
-    
+
     bike_name = user_selections[user_id]["bike"]
+
+    bot.send_message(call.message.chat.id, f"Отлично! 🎯\nМодель: {bike_name}\nРазмер рамы: {frame_size} ({height_range})\n\nТеперь напиши своё имя и телефон:")
+    bot.answer_callback_query(call.id)
+
+# ======== ВОЗВРАТ К КАТАЛОГУ ========
+@bot.callback_query_handler(func=lambda call: call.data == "back_to_catalog")
+def back_to_catalog(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
     
-    await callback.message.answer(
-        f"Отлично! 🎯\n"
-        f"Модель: {bike_name}\n"
-        f"Размер рамы: {frame_size} ({height_range})\n\n"
-        "Теперь напиши своё *имя и телефон*, чтобы мы связались с тобой по заказу.",
-        parse_mode="Markdown"
+    kb = types.InlineKeyboardMarkup()
+    for bike in bikes:
+        kb.add(types.InlineKeyboardButton(bike, callback_data=bike))
+    bot.send_message(call.message.chat.id, "Выбери модель:", reply_markup=kb)
+    bot.answer_callback_query(call.id)
+
+# ======== ВОЗВРАТ К МОДЕЛИ ========
+@bot.callback_query_handler(func=lambda call: call.data in bikes)
+def back_to_bike(call):
+    # Сохраняем активность
+    update_user_activity(call.from_user.id)
+    
+    name = call.data
+    # Сбрасываем индекс фото при возврате к модели
+    user_photo_index[call.from_user.id] = {
+        'bike': name,
+        'index': 0
+    }
+    show_photo(call.message, call.from_user.id, name, 0)
+    bot.answer_callback_query(call.id)
+
+# ======== О НАС ========
+@bot.message_handler(func=lambda m: m.text and "О нас" in m.text)
+def about(msg):
+    # Сохраняем активность
+    update_user_activity(msg.from_user.id)
+    
+    bot.send_message(
+        msg.chat.id,
+        """О нас | Официальный импортер TXED в России
+
+Компания "СИБВЕЛО" рада представить себя как официального импортера бренда TXED в России. Мы гордимся тем, что предлагаем российским потребителям качественную продукцию с 40-летней историей.
+
+🚴‍♂️ *Почему мы выбрали TXED?*
+После тщательного анализа рынка мы остановились на бренде TXED благодаря его безупречной репутации в 50+ странах мира. Современное производство с европейскими стандартами качества.
+
+📅 *Наш путь с брендом:*
+• 2023 — начало переговоров о сотрудничестве
+• 2024 — официальный старт продаж в России
+• Сегодня — активное развитие дилерской сети
+
+✅ *Что мы предлагаем:*
+• Качественные велосипеды и E-bike по доступным ценам
+• Полную техническую поддержку
+• Гарантийное обслуживание на территории РФ
+• Постоянное наличие запчастей на складах
+
+🏆 *Наши преимущества:*
+Прямые поставки с завода позволяют нам поддерживать конкурентные цены и обеспечивать стабильное наличие товара.
+
+🌟 *Наша миссия:*
+Сделать современные велосипеды и E-bike доступными для широкого круга российских потребителей.
+
+🌐 *Сайт:* https://txedbikes.ru
+📞 *Напишите нам* — ответим на все вопросы!
+
+*С уважением,*
+*Команда "СИБВЕЛО"*
+*Официальный импортер TXED в России*""",
+        parse_mode='Markdown',
+        disable_web_page_preview=True
     )
 
-# ======== ПРИЁМ ЗАЯВКИ ========
-@dp.message(lambda m: any(x.isdigit() for x in m.text) and len(m.text) > 5)
-async def save_order(msg: types.Message):
-    user_id = msg.from_user.id
+# ======== ОБРАБОТКА ЗАКАЗОВ ========
+@bot.message_handler(func=lambda m: any(x.isdigit() for x in m.text) and len(m.text) > 5)
+def save_order(msg):
+    # Сохраняем активность
+    update_user_activity(msg.from_user.id)
     
+    user_id = msg.from_user.id
+
     # Получаем данные пользователя
     user_data = user_selections.get(user_id, {})
     selected_bike = user_data.get("bike", "Неизвестная модель")
     frame_size = user_data.get("frame_size", "Не выбран")
     height_range = user_data.get("height_range", "")
-    
-    # Формируем сообщение для админа
-    admin_message = (
-        f"📩 Новая заявка:\n\n"
-        f"👤 Пользователь: {msg.from_user.full_name}\n"
-        f"🆔 ID: {user_id}\n"
-        f"🚲 Модель: {selected_bike}\n"
-        f"📏 Размер рамы: {frame_size} ({height_range})\n"
-        f"📞 Контакты: {msg.text}"
-    )
-    
-    await bot.send_message(ADMIN_ID, admin_message)
-    await msg.answer("Спасибо! Мы свяжемся с тобой в ближайшее время!")
-    
-    # Очищаем выбор пользователя после отправки заявки
+
+    admin_message = f"📩 Новая заявка:\n\n👤 Пользователь: {msg.from_user.full_name}\n🆔 ID: {user_id}\n🚲 Модель: {selected_bike}\n📏 Размер рамы: {frame_size} ({height_range})\n📞 Контакты: {msg.text}"
+    bot.send_message(ADMIN_ID, admin_message)
+    bot.send_message(msg.chat.id, "Спасибо! Мы свяжемся с тобой в ближайшее время!")
+
     if user_id in user_selections:
         del user_selections[user_id]
 
-# ======== ВОЗВРАТ К КАТАЛОГУ ========
-@dp.callback_query(lambda c: c.data == "back_to_catalog")
-async def back_to_catalog(callback: types.CallbackQuery):
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[])
-    for bike in bikes:
-        kb.inline_keyboard.append([types.InlineKeyboardButton(text=bike, callback_data=bike)])
-    await callback.message.answer("Выбери модель:", reply_markup=kb)
-
-# ======== ВОЗВРАТ К МОДЕЛИ ========
-@dp.callback_query(lambda c: c.data in bikes)
-async def back_to_bike(callback: types.CallbackQuery):
-    name = callback.data
-    bike_data = bikes[name]
-    text = bike_data["description"]
-    photo_url = bike_data["photo"]
-    
-    kb = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="📋 Спецификация", callback_data=f"specs_{name}")],
-        [types.InlineKeyboardButton(text="🛒 Заказать", callback_data=f"order_{name}")],
-        [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_catalog")]
-    ])
-    
-    await callback.message.answer_photo(
-        photo=photo_url,
-        caption=text,
-        parse_mode="Markdown",
-        reply_markup=kb
-    )
-
-# ======== О НАС ========
-@dp.message(lambda m: m.text and "О нас" in m.text)
-async def about(msg: types.Message):
-    await msg.answer(
-        "Мы — команда *Velozames*, подбираем велосипеды для любых маршрутов и уровней подготовки.\n\n"
-        "🌐 [Сайт](https://velozames.com)\n📞 Напиши нам прямо сюда — ответим лично!",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
+# ======== ОБРАБОТКА ВСЕХ СООБЩЕНИЙ ДЛЯ ТРЕКИНГА ========
+@bot.message_handler(func=lambda m: True)
+def track_all_messages(msg):
+    """Отслеживает все сообщения для сохранения активности"""
+    update_user_activity(msg.from_user.id)
 
 # ======== ЗАПУСК ========
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("Бот запущен 🚴‍♂️")
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("🤖 Запуск бота...")
+    print(f"🔑 Админ ID: {ADMIN_ID}")
+    print(f"📁 Файл пользователей: {USERS_FILE}")
+    print("🚀 Бот запущен!")
+    print("💡 Для доступа к админ-панели отправьте: /admin")
+    bot.infinity_polling()
