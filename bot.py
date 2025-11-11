@@ -2,6 +2,7 @@ import os
 import logging
 import json
 import datetime
+import time
 from telebot import TeleBot, types
 from telebot.handler_backends import State, StatesGroup
 from telebot.storage import StateMemoryStorage
@@ -33,10 +34,6 @@ try:
 except Exception as e:
     print(f"❌ Ошибка инициализации бота: {e}")
     exit(1)
-
-# Инициализация бота
-storage = StateMemoryStorage()
-bot = TeleBot(TOKEN, state_storage=storage)
 
 # Файл для хранения данных пользователей
 USERS_FILE = "users.json"
@@ -400,7 +397,7 @@ def start_broadcast(msg):
     )
     bot.set_state(msg.from_user.id, AdminForm.waiting_for_broadcast_message, msg.chat.id)
 
-@bot.message_handler(state=AdminForm.waiting_for_broadcast_message)
+@bot.message_handler(state=AdminForm.waiting_for_broadcast_message, content_types=['text'])
 def process_broadcast_message(msg):
     users = get_all_users()
     total_users = len(users)
@@ -443,7 +440,7 @@ def confirm_broadcast(call):
         bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено")
         return
     
-    # Рассылка сообщения с задержками для PythonAnywhere
+    # Рассылка сообщения с задержками
     success_count = 0
     fail_count = 0
     
@@ -453,8 +450,7 @@ def confirm_broadcast(call):
         call.message.message_id
     )
     
-    # Рассылка с задержками для обхода ограничений PythonAnywhere
-    import time
+    # Рассылка с задержками для обхода ограничений
     for i, user_id in enumerate(users.keys()):
         try:
             # Отправляем сообщение
