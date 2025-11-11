@@ -8,14 +8,30 @@ from telebot.storage import StateMemoryStorage
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Используем переменные окружения для безопасности
-TOKEN = os.getenv("BOT_TOKEN")  # УБРАЛИ дефолтное значение!
-ADMIN_ID = int(os.getenv("ADMIN_ID", "445570258"))  # Оставили только ваш ID
+print("🔧 Начало инициализации бота...")
 
-# Проверка обязательных переменных
-if not TOKEN:
-    logging.error("❌ BOT_TOKEN не установлен!")
+# ОТЛАДКА: Выведем все переменные окружения
+print("🔍 Все переменные окружения:")
+for key, value in os.environ.items():
+    if 'BOT' in key.upper() or 'TOKEN' in key.upper() or 'ADMIN' in key.upper():
+        print(f"   {key}: {value}")
+
+# Используем переменные окружения с fallback
+TOKEN = os.getenv("BOT_TOKEN") or os.getenv("token") or "7819916914:AAHuOv_6eph7IZ2OYyqq-zKz22yr_G4MIPk"
+ADMIN_ID = int(os.getenv("ADMIN_ID") or os.getenv("admin_id") or "445570258")
+
+print(f"🔧 Используемый токен: {'✅ Установлен' if TOKEN else '❌ НЕТ'}")
+print(f"🔧 Админ ID: {ADMIN_ID}")
+
+try:
+    # Инициализация бота
+    storage = StateMemoryStorage()
+    bot = TeleBot(TOKEN, state_storage=storage)
+    print("✅ Бот инициализирован")
+except Exception as e:
+    print(f"❌ Ошибка инициализации бота: {e}")
     exit(1)
 
 # Инициализация бота
